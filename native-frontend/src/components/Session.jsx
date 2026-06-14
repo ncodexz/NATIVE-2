@@ -34,6 +34,7 @@ export default function Session({ token, user, onLogout }) {
   const streamRef = useRef(null)
   const processorRef = useRef(null)
   const summaryCalledRef = useRef(false)
+  const micPausedRef = useRef(false)
 
 
   async function startSession(char) {
@@ -98,7 +99,7 @@ export default function Session({ token, user, onLogout }) {
           setTranslation(msg.text)
         }
         if (msg.type === "pronunciation_result") {
-          setPronunciationWords(msg.words)
+          setPronunciationWords(prev => [...prev, ...msg.words])
         }
       }
     }
@@ -143,7 +144,7 @@ export default function Session({ token, user, onLogout }) {
       processorRef.current = processor
 
       processor.onaudioprocess = (e) => {
-        if (micPaused || ws.readyState !== WebSocket.OPEN) return
+        if (micPausedRef.current || ws.readyState !== WebSocket.OPEN) return
         const input = e.inputBuffer.getChannelData(0)
         const pcm = float32ToPCM16(input)
         ws.send(pcm)
@@ -345,7 +346,10 @@ if (showSummary) {
       {/* Controls */}
       <div className="flex gap-4">
         <button
-          onClick={() => setMicPaused(!micPaused)}
+          onClick={() => {
+            setMicPaused(!micPaused)
+            micPausedRef.current = !micPausedRef.current
+          }}
           className={`px-6 py-3 rounded-lg border transition text-sm ${
             micPaused
               ? "border-yellow-500 text-yellow-500"

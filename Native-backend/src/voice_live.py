@@ -150,9 +150,9 @@ class NativeVoiceLive:
                     input_audio_format=InputAudioFormat.PCM16,
                     output_audio_format=OutputAudioFormat.PCM16,
                     turn_detection=ServerVad(
-                        threshold=0.5,
+                        threshold=0.8,
                         prefix_padding_ms=300,
-                        silence_duration_ms=600,
+                        silence_duration_ms=800,
                     ),
                     input_audio_echo_cancellation=AudioEchoCancellation(),
                     input_audio_noise_reduction=AudioNoiseReduction(
@@ -273,6 +273,7 @@ class NativeVoiceLive:
             user_transcript_ref = ""
             _user_id = self.user_id        
             _session_id = self.session_id
+            turn_count = 0
 
             try:
                 async with connect(
@@ -359,19 +360,37 @@ class NativeVoiceLive:
                                     })   
                                 elif event.type == ServerEventType.CONVERSATION_ITEM_INPUT_AUDIO_TRANSCRIPTION_COMPLETED:
                                     nonlocal user_transcript_ref
-                                    user_transcript_ref = event.transcript
+                                    print(f"USER TRANSCRIPT: '{event.transcript}'")
+                                    user_transcript_ref += " " + event.transcript if user_transcript_ref else event.transcript
                                     await websocket.send_json({
                                         "type": "user_transcript",
-                                        "text": event.transcript
+                                        "text": user_transcript_ref
                                     })
                                
                                 elif event.type == ServerEventType.RESPONSE_DONE:
+                                    nonlocal turn_count
                                     await websocket.send_json({"type": "assistant_done"})
+                                    turn_count += 1
+                                    
+                                    if turn_count % 5 == 0:
+                                        from pedagogy import should_inject, build_injection
+                                        if should_inject(turn_count, _user_id):
+                                            injection = build_injection(_user_id)
+                                            if injection:
+                                                try:
+                                                    from azure.ai.voicelive.models import RequestSession
+                                                    await connection.session.update(
+                                                        session=RequestSession(instructions=injection)
+                                                    )
+                                                    print(f"Pedagogy injected at turn {turn_count}")
+                                                except Exception as e:
+                                                    print(f"Pedagogy injection error: {e}")
                                     
                                 elif event.type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STARTED:
                                     await websocket.send_json({"type": "user_speaking"})
                                     audio_buffer.clear()
                                     is_user_speaking = True
+                                    user_transcript_ref = ""
 
                                 elif event.type == ServerEventType.INPUT_AUDIO_BUFFER_SPEECH_STOPPED:
                                     is_user_speaking = False
